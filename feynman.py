@@ -4,7 +4,8 @@
 from math import factorial
 import sympy as sy
 from latex import Latex
-from term import Gamma, Momentum, Metric, U, UBar, Gamma0, Gamma1, Gamma2, Gamma3, MatrixTerm
+from term import Gamma, Momentum, Metric, U, UBar, Gamma0, Gamma1, Gamma2, Gamma3, MatrixTerm, \
+        GammaFactory, MomentumFactory, UFactory, UBarFactory
 
 from itertools import product
 
@@ -25,13 +26,36 @@ class Amplitude(object):
         self.inners = []  # Format is (constant, expr)
         self.indices = set()
 
+    @staticmethod
+    def _multiply(expr1, expr2):
+        terms = []
+        print("multiplying {0} and {1}".format(expr1, expr2))
+        if expr1 == 1:
+            return expr2
+        elif expr2 == 1:
+            return expr1
+
+        if isinstance(expr1, sy.MatAdd) and isinstance(expr2, sy.MatAdd):
+            for arg1 in expr1.args:
+                for arg2 in expr2.args:
+                    terms.append(sy.MatMul(arg1, arg2))
+        elif isinstance(expr1, sy.MatAdd):
+            for arg2 in expr2.args:
+                terms.append(sy.MatMul(expr1, arg2))
+        elif isinstance(expr2, sy.MatAdd):
+            for arg1 in expr1.args:
+                terms.append(sy.MatMul(arg1, expr2))
+        else:
+            return sy.MatMul(expr1, expr2)
+        return sy.MatAdd(*terms)
+
     def U(self, p, spin):
-        u = U(p, spin)
+        u = UFactory(p, spin)
         self.spinors.append(u)
         return u
 
     def UBar(self, p, spin):
-        u = UBar(p, spin)
+        u = UBarFactory(p, spin)
         self.spinors.append(u)
         return u
 
@@ -41,7 +65,7 @@ class Amplitude(object):
         """
         self.expr *= sy.I
         self.expr *= sy.Symbol(e)
-        self.numer *= Gamma(ind)
+        self.numer = Amplitude._multiply(self.numer, GammaFactory(ind))
         self.indices.add(ind)
 
     def S_F(self, p, m, p2, m2, ind):
@@ -52,7 +76,10 @@ class Amplitude(object):
             ind: string
         """
         self.expr *= sy.I
-        self.numer *= Gamma(ind) * p + m
+        self.numer = sy.MatAdd(
+                #Amplitude._multiply(self.numer, Amplitude._multiply(GammaFactory(ind), p)),
+                Amplitude._multiply(self.numer, Amplitude._multiply(GammaFactory(ind), p)),
+                Amplitude._multiply(self.numer, m))
         self.denom *= p2 - m2
         self.indices.add(ind)
 
@@ -77,6 +104,7 @@ class Amplitude(object):
 
     def latex_add(self, latex):
         """ Numer / denom format """
+        return  # TODO fuck this
 
         expr_ = self.expr * (self.numer / self.denom) * (1 / self.denom_z)
         for (a, b) in self.metrics:
@@ -141,17 +169,26 @@ def fermion_propagator():
 
     amp.integrals_internal.append((k, None, None))
     amp.expr /= (2 * sy.pi) ** 4
-    amp.numer *= amp.UBar(p, spin1)  # ubar
+    latex.add(latex.get(amp.numer))
+    amp.numer = Amplitude._multiply(amp.numer, amp.UBar(p, spin1))  # ubar
+    latex.add(latex.get(amp.numer))
     amp.V(e, mu)  # ie gamma mu
+    latex.add(latex.get(amp.numer))
     ind = tensors[0]  # \\sigma_2
-    amp.S_F(Momentum(p, ind) - Momentum(k, ind),
+    latex.add(latex.get(amp.numer))
+    amp.S_F(MomentumFactory(p, ind) - MomentumFactory(k, ind),
             sy.Symbol(m),
             sy.Symbol(p2) + sy.Symbol(k2) - 2 * sy.Symbol(pk),
             sy.Symbol(m2),
             ind)
+    latex.add(latex.get(amp.numer))
     amp.V(e, nu)  # ie gamma nu
-    amp.numer *= amp.U(p, spin2)  # u
+    latex.add(latex.get(amp.numer))
+    amp.numer = Amplitude._multiply(amp.numer, amp.U(p, spin2))  # u
+    latex.add(latex.get(amp.numer))
     amp.D_F(sy.Symbol(k), mu, nu, t, sy.Symbol(lamb), sy.Symbol(Lamb))
+    latex.add(latex.get(amp.numer))
+    latex.render()
 
     # Render
     latex.add_text("Raw amplitude")
@@ -190,7 +227,8 @@ def fermion_propagator():
         latex.render()
 
     # Numerator expansion
-    amp.numer = amp.numer.expand()
+    sy.pprint(amp.numer)
+    #amp.numer = amp.numer.expand()
 
     if RENDER_ALL:
         latex.add_text("Numerator expansion")
@@ -216,6 +254,8 @@ def fermion_propagator():
 
         amp.denom = (sy.Symbol(k2) + D) ** b
 
+        amp.latex_add(latex)
+        latex.render()
         for term in amp.numer.args:  # term = k_{\sigma_2} m^2 gamma
             prod = term.args
             

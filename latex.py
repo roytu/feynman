@@ -42,16 +42,16 @@ class Latex(object):
 
 class CustomLatexPrinter(LatexPrinter):
     def _print_Gamma(self, expr):
-        return "{{ \\gamma^{{ {0} }} }}".format(expr.args[0])
+        return "{{ \\gamma^{{ {0} }} }}".format(expr.args[3])
 
     def _print_Momentum(self, expr):
         return "{{ {{ {0} }}_{{ {1} }} }}".format(expr.args[0], expr.args[1])
 
     def _print_U(self, expr):
-        return "u({{ {0} }})".format(expr.args[0])
+        return "u({{ {0} }})".format(expr.args[3])
 
     def _print_UBar(self, expr):
-        return "{{ \\bar{{u}}({0}) }}".format(expr.args[0])
+        return "{{ \\bar{{u}}({0}) }}".format(expr.args[3])
 
     def _print_Metric(self, expr):
         return "g_{{ {0} {1} }}".format(expr.args[0], expr.args[1])

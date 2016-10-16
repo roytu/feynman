@@ -15,12 +15,43 @@ import sympy as sy
 class MatrixTerm(object):
     pass
 
-class Gamma(sy.MatrixSymbol, MatrixTerm):
-    def __new__(cls, ind):
-        s = sy.Symbol.__new__(cls, "\\gamma_{0}".format(ind))
-        s._args += (ind,)
-        s._assumptions["commutative"] = False
+def GammaFactory(ind):
+    s = sy.MatrixSymbol.__new__(Gamma, "gamma_{0}".format(ind), 4, 4)
+    s._args += (ind,)
+    return s
+
+def MomentumFactory(name_, ind=None):
+    if ind:
+        s = sy.Symbol.__new__(Momentum, "{0}_{1}".format(name_, ind))
+    else:
+        s = sy.Symbol.__new__(Momentum, "{0}".format(name_))
+    s._args += (name_, ind)
+    return s
+
+def UFactory(name, spin):
+    s = sy.MatrixSymbol.__new__(U, "u({0})".format(name), 4, 1)
+    s._args += (name, spin)
+    return s
+
+def UBarFactory(name, spin):
+    s = sy.MatrixSymbol.__new__(UBar, "\\bar{{u}}({0})".format(name), 1, 4)
+    s._args += (name, spin)
+    return s
+
+# These are actually factories I guess
+class Gamma(sy.MatrixSymbol):
+    #def __init__(self, *args):
+    #    sy.MatrixSymbol.__init__(self, *args)
+    #    self._args = None
+
+    def __new__(self, name, n, m, **args):
+        print(args)
+        s = sy.MatrixSymbol.__new__(self, name, 4, 4)
+        s._args += tuple(args)
         return s
+
+    def add_index(self, ind):
+        self.indices.add(ind)
 
     def resolve(self, ind):
         if ind == 0:
@@ -34,43 +65,30 @@ class Gamma(sy.MatrixSymbol, MatrixTerm):
         else:
             raise Exception("WEIRD")
 
-    def doit(self):
-        ret = None
-        if self.args[0] == 0:
-            ret = Gamma0.explicit()
-        elif self.args[0] == 1:
-            ret = Gamma1.explicit()
-        elif self.args[0] == 2:
-            ret = Gamma2.explicit()
-        elif self.args[0] == 3:
-            ret = Gamma3.explicit()
-        else:
-            raise Exception("Uncontracted index! {0}".format(self.args[0]))
-        print("Returning {0}".format(ret))
-        return ret
+    #def doit(self):
+    #    ret = None
+    #    if self.args[0] == 0:
+    #        ret = Gamma0.explicit()
+    #    elif self.args[0] == 1:
+    #        ret = Gamma1.explicit()
+    #    elif self.args[0] == 2:
+    #        ret = Gamma2.explicit()
+    #    elif self.args[0] == 3:
+    #        ret = Gamma3.explicit()
+    #    else:
+    #        raise Exception("Uncontracted index! {0}".format(self.args[0]))
+    #    print("Returning {0}".format(ret))
+    #    return ret
 
 class Momentum(sy.Symbol):
-    def __new__(cls, name_, ind=None):
-        if ind:
-            s = sy.Symbol.__new__(cls, "{0}_{1}".format(name_, ind))
-        else:
-            s = sy.Symbol.__new__(cls, "{0}".format(name_))
-        s._args += (name_,)
-        if ind:
-            s._args += (ind,)
-        return s
-
     def resolve(self, new):
         """ This overrides the default behavior of subs. """
         # TODO make better?
         return sy.Symbol("{{ {{ {0} }}_{{ {1} }} }}".format(self.args[0], new))
 
-class U(sy.MatrixSymbol, MatrixTerm):
-    def __new__(cls, name_, spin):
-        s = sy.Symbol.__new__(cls, "u({0})".format(name_))
-        s._args += (name_, spin)  # Spin is either 0: up or 1: down
-        s._assumptions["commutative"] = False
-        return s
+class U(sy.MatrixSymbol):
+    def set_spin(self, spin):
+        self.spin = spin  # Spin is either 0: up or 1: down
 
     def explicit(self):
         p = Momentum(self.args[0])
@@ -100,12 +118,9 @@ class U(sy.MatrixSymbol, MatrixTerm):
         else:
             raise Exception("Error!")
 
-class UBar(sy.MatrixSymbol, MatrixTerm):
-    def __new__(cls, name_, spin):
-        s = sy.Symbol.__new__(cls, "\\bar{{u}}({0})".format(name_))
-        s._args += (name_, spin)  # Spin is either 0: up or 1: down
-        s._assumptions["commutative"] = False
-        return s
+class UBar(sy.MatrixSymbol):
+    def set_spin(self, spin):
+        self.spin = spin  # Spin is either 0: up or 1: down
 
     def explicit(self):
         p = Momentum(self.args[0])
