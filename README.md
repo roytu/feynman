@@ -1,2 +1,3 @@
 # feynman
-program to do my math for me
+
+Program that takes the integrals from scattering amplitudes and simplifies them with some funny tricks.  WIP
