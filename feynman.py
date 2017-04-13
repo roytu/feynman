@@ -4,12 +4,15 @@
 from math import factorial
 import sympy as sy
 from latex import Latex
-from term import Gamma, Momentum, Metric, U, UBar, Gamma0, Gamma1, Gamma2, Gamma3, MatrixTerm, \
-        GammaFactory, MomentumFactory, UFactory, UBarFactory
+from term import GammaFactory, UFactory, UBarFactory, MomentumFactory, \
+        MetricFactory, Momentum, Metric, MatrixTerm
 
 from itertools import product
+from Queue import Queue
 
-RENDER_ALL = False
+from util import find_first
+
+RENDER_ALL = True
 
 class Amplitude(object):
     """ Amplitude is a data structure for holding M expressions. """
@@ -26,36 +29,13 @@ class Amplitude(object):
         self.inners = []  # Format is (constant, expr)
         self.indices = set()
 
-    @staticmethod
-    def _multiply(expr1, expr2):
-        terms = []
-        print("multiplying {0} and {1}".format(expr1, expr2))
-        if expr1 == 1:
-            return expr2
-        elif expr2 == 1:
-            return expr1
-
-        if isinstance(expr1, sy.MatAdd) and isinstance(expr2, sy.MatAdd):
-            for arg1 in expr1.args:
-                for arg2 in expr2.args:
-                    terms.append(sy.MatMul(arg1, arg2))
-        elif isinstance(expr1, sy.MatAdd):
-            for arg2 in expr2.args:
-                terms.append(sy.MatMul(expr1, arg2))
-        elif isinstance(expr2, sy.MatAdd):
-            for arg1 in expr1.args:
-                terms.append(sy.MatMul(arg1, expr2))
-        else:
-            return sy.MatMul(expr1, expr2)
-        return sy.MatAdd(*terms)
-
-    def U(self, p, spin):
-        u = UFactory(p, spin)
+    def U(self, p):
+        u = UFactory(p)
         self.spinors.append(u)
         return u
 
-    def UBar(self, p, spin):
-        u = UBarFactory(p, spin)
+    def UBar(self, p):
+        u = UBarFactory(p)
         self.spinors.append(u)
         return u
 
@@ -65,7 +45,7 @@ class Amplitude(object):
         """
         self.expr *= sy.I
         self.expr *= sy.Symbol(e)
-        self.numer = Amplitude._multiply(self.numer, GammaFactory(ind))
+        self.numer *= GammaFactory(ind)
         self.indices.add(ind)
 
     def S_F(self, p, m, p2, m2, ind):
@@ -76,10 +56,7 @@ class Amplitude(object):
             ind: string
         """
         self.expr *= sy.I
-        self.numer = sy.MatAdd(
-                #Amplitude._multiply(self.numer, Amplitude._multiply(GammaFactory(ind), p)),
-                Amplitude._multiply(self.numer, Amplitude._multiply(GammaFactory(ind), p)),
-                Amplitude._multiply(self.numer, m))
+        self.numer *= p * GammaFactory(ind) + m
         self.denom *= p2 - m2
         self.indices.add(ind)
 
@@ -129,11 +106,290 @@ class Amplitude(object):
         """ Inner format with no integrals """
         expr_ = self.expr * sum([c_ * e_ for (c_, e_) in self.inners])
         for (a, b) in self.metrics:
-            expr_ *= Metric(a, b)
+            expr_ *= MetricFactory(a, b)
 
         s = ""
         s += latex.get(expr_)
         latex.add(s)
+
+    def feynmans_trick(self, latex):
+        # Denominator kill
+        latex.add_text("Feynman parameterization")
+
+        denom_ = []
+        for arg in self.denom.args:
+            if type(arg) == sy.Pow:
+                base, power = arg.args
+                for _ in range(power):
+                    denom_.append(base)
+            else:
+                denom_.append(arg)
+
+        n = len(denom_)
+        self.expr *= factorial(n - 1)
+
+        zs = [sy.Symbol("{{ z_{{ {0} }} }}".format(i+1)) for i in range(n)]
+        self.denom = sum([d * z for (d, z) in zip(denom_, zs)]).expand() ** n
+        for i, z in enumerate(zs):
+            a = 0
+            b = 1 - sum(zs[:i])
+            self.integrals_zs.append((z, a, b))
+
+        self.latex_add(latex)
+        if RENDER_ALL:
+            latex.render()
+
+        # Numerator expansion
+        self.numer = self.numer.expand()
+
+        if RENDER_ALL:
+            latex.add_text("Numerator expansion")
+            self.latex_add(latex)
+            latex.render()
+
+    def internal_momenta(self, k_to_k2, latex):
+        for (k, _, _) in self.integrals_internal:  # k = "k"
+            k2 = k_to_k2[k]
+            denom_nopow, b = self.denom.args[0], self.denom.args[1]
+
+            [C, D_] = sy.Poly(denom_nopow, sy.Symbol(k2)).coeffs()
+
+            D = D_ / C
+            self.denom_z *= C ** b
+
+            self.denom = (sy.Symbol(k2) + D) ** b
+
+            self.latex_add(latex)
+            latex.render()
+            for term in self.numer.args:  # term = k_{\sigma_2} m^2 gamma
+                prod = term.args
+                
+                # Get k-vectors
+                ks = [p for p in prod if isinstance(p, Momentum) and p.args[0] == k]
+
+                if len(ks) % 2 == 1:  # Ward identity for odd tensors
+                    pass
+                else:
+                    if len(ks) > 0:
+                        # TODO convert higher-order even tensor integral to
+                        #      scalar integral
+                        pass
+                    else:
+                        c, a = term.as_coeff_exponent(sy.Symbol(k2))
+                        # Golden integral
+                        c_ = sy.I * factorial(b - a - 3) * factorial(a + 1)
+                        c_ /= factorial(b - 1)
+                        c_ *= sy.pi ** 2
+                        c_ *= c
+
+                        expr_ = 1
+                        expr_ /= D ** (b - a - 2)
+
+                        self.inners.append((c_, expr_))
+
+        # Compress inners by term
+        inners_dict = {}
+        for (c_, expr_) in self.inners:
+            if expr_ not in inners_dict:
+                inners_dict[expr_] = 0
+            inners_dict[expr_] += c_
+        self.inners = [(v, k) for (k, v) in inners_dict.items()]
+        self.latex_add2(latex)
+
+    def cutoffs(self, latex, Lamb):
+        # Integrate cutoffs, then z integrals (backwards!)
+        for (z, a, b) in self.integrals_cutoffs + self.integrals_zs[::-1]:
+            subs_dict = {}
+
+            inners_ = []
+            for (c_, expr_) in self.inners:
+                def add_symbol(expr___):
+                    """ Adds a new symbol to `subs_dict` with the value
+                        `expr` and returns it. """
+                    n = len(subs_dict)
+                    symb = sy.Symbol("C_{{ {0} }}".format(n))
+                    subs_dict[symb] = expr___
+                    return symb
+
+                def simplify(expr__):
+                    """ Take a list of args and replace things with subs_dict. """
+                    if isinstance(expr__, sy.Add):
+                        const = 0
+                        args = []
+                        # Check if guy has z
+                        for arg in expr__.collect(z).args:
+                            if z not in arg.free_symbols:
+                                const += arg
+                            else:
+                                args.append(arg)
+                        C = add_symbol(const)
+                        res = 0
+                        for arg in args:
+                            res += simplify(arg)
+                        res += C
+                        return res
+                    elif isinstance(expr__, sy.Mul):
+                        const = 1
+                        args = []
+                        # Check if guy has z
+                        for arg in expr__.collect(z).args:
+                            if z not in arg.free_symbols:
+                                const *= arg
+                            else:
+                                args.append(arg)
+                        res = 1
+                        for arg in args:
+                            res *= simplify(arg)
+
+                        if const != 1:
+                            C = add_symbol(const)
+                            res *= C
+                        return res
+                    else:
+                        if expr__.args:
+                            return (expr__.__class__)(*[simplify(arg) for arg in expr__.args])
+                        return expr__
+
+                latex.add_text("Starting...")
+
+                # UV collect
+                latex.add(latex.get(expr_))
+                latex.add_text("UV collecting...")
+                if RENDER_ALL:
+                    latex.render()
+
+                uv = sy.Symbol(Lamb)
+                if uv in expr_.free_symbols:
+                    expr_ = sy.O(expr_, (uv, sy.oo)).args[0]
+
+                # Simplifying
+                latex.add(latex.get(expr_))
+                latex.add_text("Simplifying...")
+                if RENDER_ALL:
+                    latex.render()
+
+                expr_ = simplify(expr_)
+
+                # Integrating
+                latex.add(latex.get(expr_))
+                latex.add_text("Integrating wrt ${0}$...".format(z))
+
+                if RENDER_ALL:
+                    latex.render()
+
+                expr_ = sy.integrate(expr_, (z, a, b))
+
+                latex.add(latex.get(expr_))
+                inners_.append((c_, expr_))
+
+            self.inners = inners_
+
+            # Perform substitutions
+            inners_ = []
+            for (c_, expr_) in self.inners:
+                expr_ = expr_.subs(subs_dict)
+                inners_.append((c_, expr_))
+            self.inners = inners_
+
+            latex.add_text("Substituting constants...")
+            self.latex_add2(latex)
+
+            latex.add_text("Simplifying...")
+            expr_ = simplify(expr_)
+            self.latex_add2(latex)
+
+            if RENDER_ALL:
+                latex.render()
+
+    @staticmethod
+    def _split_into_matrices(term):
+        """ Split a term such as:
+
+            ie pi p_{sigma_2} bar{u}(p) gamma^mu gamma^{sigma_2} gamma^nu u(p)
+
+            Returns:
+                (const, list of metrics, list of momenta, list of matrix terms)
+        """
+        const = 1
+        metrics = []
+        momentas = []
+        matrix_terms = []
+
+        factors = []
+        for prod in term.as_ordered_factors():
+            # First write out all exponents
+            if isinstance(prod, sy.Pow):
+                base, exponent = prod.args
+                for _ in range(exponent):
+                    factors.append(base)
+            else:
+                factors.append(prod)
+
+        # Distribute factors into correct lists
+        for factor in factors:
+            if isinstance(factor, Metric):
+                metrics.append(factor)
+            elif isinstance(factor, Momentum):
+                momentas.append(factor)
+            elif isinstance(factor, MatrixTerm):
+                matrix_terms.append(factor)
+            else:
+                # Constant??
+                const *= factor
+        return (const, metrics, momentas, matrix_terms)
+
+    @staticmethod
+    def _merge_matrices(const, metrics, momentas, matrix_terms):
+        """ Does the opposite of _split_into_matrices(term)
+
+            Returns:
+                term
+        """
+        result = const
+        for factor in metrics + momentas + matrix_terms:
+            result *= factor
+        return result
+
+    @staticmethod
+    def _simplify_metrics(metrics):
+        """ Takes a list of metrics and returns a list of metrics where
+            terms like [(\mu, \nu) (\nu, \sigma)] -> [(\mu, \sigma)]
+        """
+        # TODO
+        return metrics
+
+    @staticmethod
+    def _find_metric_contraction(A, B, metrics):
+        """ Takes two gamma matrices and a list of metrics and checks if there's a hit.
+            Returns the index of the metric, or None if no metric.
+
+            Args:
+                A: gamma matrix
+                B: gamma matrix
+                metrics: metrics list
+
+            Returns:
+                index (or None)
+        """
+        for i, metric in enumerate(metrics):
+            metric1, metric2 = metric.args[:2]
+            if (metric1, metric2) == (A_ind, B_ind) or (metric1, metric2) == (B_ind, A_ind):
+                return i
+        return None
+
+    @staticmethod
+    def _find_momenta(ind, momentas):
+        """ Find the momentum associated with an index
+
+            Args:
+                ind: index
+                momentas: list of momentum variables
+
+            Returns:
+                momentum
+        """
+        # TODO do
+        pass
 
 def fermion_propagator():
     """ Calculate expression for first-order corrected fermion propagator. """
@@ -159,36 +415,27 @@ def fermion_propagator():
     mu = "\\mu"
     nu = "\\nu"
 
-    spin1 = 0  # Up
-    spin2 = 0  # Up
-
     k_to_k2 = {}
     k_to_k2[k] = k2
+
+    p_to_m = {}
+    p_to_m[p] = m
 
     amp = Amplitude()
 
     amp.integrals_internal.append((k, None, None))
     amp.expr /= (2 * sy.pi) ** 4
-    latex.add(latex.get(amp.numer))
-    amp.numer = Amplitude._multiply(amp.numer, amp.UBar(p, spin1))  # ubar
-    latex.add(latex.get(amp.numer))
+    amp.numer *= amp.UBar(p)  # ubar
     amp.V(e, mu)  # ie gamma mu
-    latex.add(latex.get(amp.numer))
     ind = tensors[0]  # \\sigma_2
-    latex.add(latex.get(amp.numer))
     amp.S_F(MomentumFactory(p, ind) - MomentumFactory(k, ind),
             sy.Symbol(m),
             sy.Symbol(p2) + sy.Symbol(k2) - 2 * sy.Symbol(pk),
             sy.Symbol(m2),
             ind)
-    latex.add(latex.get(amp.numer))
     amp.V(e, nu)  # ie gamma nu
-    latex.add(latex.get(amp.numer))
-    amp.numer = Amplitude._multiply(amp.numer, amp.U(p, spin2))  # u
-    latex.add(latex.get(amp.numer))
+    amp.numer *= amp.U(p)  # u
     amp.D_F(sy.Symbol(k), mu, nu, t, sy.Symbol(lamb), sy.Symbol(Lamb))
-    latex.add(latex.get(amp.numer))
-    latex.render()
 
     # Render
     latex.add_text("Raw amplitude")
@@ -196,44 +443,13 @@ def fermion_propagator():
     if RENDER_ALL:
         latex.render()
 
+    import pdb; pdb.set_trace()
+
     ################################################
     ########      FEYNMAN'S TRICK         ##########
     ################################################
 
-    # Denominator kill
-    latex.add_text("Feynman parameterization")
-
-    denom_ = []
-    for arg in amp.denom.args:
-        if type(arg) == sy.Pow:
-            base, power = arg.args
-            for _ in range(power):
-                denom_.append(base)
-        else:
-            denom_.append(arg)
-
-    n = len(denom_)
-    amp.expr *= factorial(n - 1)
-
-    zs = [sy.Symbol("{{ z_{{ {0} }} }}".format(i+1)) for i in range(n)]
-    amp.denom = sum([d * z for (d, z) in zip(denom_, zs)]).expand() ** n
-    for i, z in enumerate(zs):
-        a = 0
-        b = 1 - sum(zs[:i])
-        amp.integrals_zs.append((z, a, b))
-
-    amp.latex_add(latex)
-    if RENDER_ALL:
-        latex.render()
-
-    # Numerator expansion
-    sy.pprint(amp.numer)
-    #amp.numer = amp.numer.expand()
-
-    if RENDER_ALL:
-        latex.add_text("Numerator expansion")
-        amp.latex_add(latex)
-        latex.render()
+    amp.feynmans_trick(latex)
 
     # TODO evaluate internal momenta integrals
     # At this point we stop with numer and denom and combine them into
@@ -243,244 +459,13 @@ def fermion_propagator():
     ########     EVAL. INTERNAL MOMENTA   ##########
     ################################################
 
-    for (k, _, _) in amp.integrals_internal:  # k = "k"
-        k2 = k_to_k2[k]
-        denom_nopow, b = amp.denom.args[0], amp.denom.args[1]
-
-        [C, D_] = sy.Poly(denom_nopow, sy.Symbol(k2)).coeffs()
-
-        D = D_ / C
-        amp.denom_z *= C ** b
-
-        amp.denom = (sy.Symbol(k2) + D) ** b
-
-        amp.latex_add(latex)
-        latex.render()
-        for term in amp.numer.args:  # term = k_{\sigma_2} m^2 gamma
-            prod = term.args
-            
-            # Get k-vectors
-            ks = [p for p in prod if isinstance(p, Momentum) and p.args[0] == k]
-
-            if len(ks) % 2 == 1:  # Ward identity for odd tensors
-                pass
-            else:
-                if len(ks) > 0:
-                    # TODO convert higher-order even tensor integral to
-                    #      scalar integral
-                    pass
-                else:
-                    c, a = term.as_coeff_exponent(sy.Symbol(k2))
-                    # Golden integral
-                    c_ = sy.I * factorial(b - a - 3) * factorial(a + 1)
-                    c_ /= factorial(b - 1)
-                    c_ *= sy.pi ** 2
-
-                    # TODO solve matrices in c
-                    #matrices = []
-                    #for arg in c.args:
-                    #    if isinstance(arg, MatrixTerm):
-                    #        matrices.append(arg)
-
-                    # Resolve all matrices
-
-                    c_ *= 1  # CHANGE THIS
-
-                    c_new = 0
-                    n = len(amp.indices)
-                    for indices_vals in product([0, 1, 2, 3], repeat=n):
-                        # Construct substitution dictionary
-                        ind2val = {}
-                        for (k, v) in zip(amp.indices, indices_vals):
-                            ind2val[k] = v
-                    
-                        # Limit metrics
-                        do_break = False
-                        for (a_, b_) in amp.metrics:
-                            if ind2val[a_] != ind2val[b_]:
-                                do_break = True
-                                break
-                        if do_break:
-                            continue
-
-                        c__ = c
-                        # Construct a dictionary of matrices / spinors
-                        # and their replacements
-                        replace_dict = {}
-                        for (ind, val) in ind2val.items():
-                            # When in doubt, add more underscores!
-                            def replace_helper(expr):
-                                temp = expr.resolve(val)
-                                # If has explicit representation, use that instead
-                                print("temp: {0}".format(temp))
-                                if callable(getattr(temp, "explicit", None)):
-                                    temp = temp.explicit()
-
-                                print("returning: {0}".format(temp))
-                                return temp
-
-                            # oh my god fuck this library
-                            # stupid hack to fix the stupid matrix bugs
-
-                            # replace the index aw fuck this
-                            print("ind: {0}".format(ind))
-                            print("c__ before: {0}".format(c__))
-                            c__, m = c__.replace(lambda expr: ind in expr.args,
-                                              lambda expr: expr.resolve(val),
-                                              simultaneous=True, exact=True, map=True)
-                            print("map: {0}".format(m))
-                            print("c__ after: {0}".format(c__))
-
-                            # please let this nightmare end
-
-                            # Gets a dictionary of things that would normally be
-                            # replaced
-                            f = lambda expr: ind in expr.args
-                            #id_ = lambda expr: expr
-                            id_ = lambda expr: sy.Dummy()
-                            _, repmap = c__.replace(f, id_, map=True, exact=True)
-
-                            for rep in repmap.keys():
-                                replace_dict[rep] = replace_helper(rep)
-
-                        # Substitution for spinors, etc
-                        f = lambda e: callable(getattr(e, "explicit", None))
-                        id_ = lambda expr: sy.Dummy()
-                        _, repmap = c__.replace(f, id_, map=True, exact=True)
-
-                        for rep in repmap.keys():
-                            replace_dict[rep] = rep.explicit()
-
-                        # Finally do the replace
-                        import pdb; pdb.set_trace()
-                        c__ = c__.xreplace(replace_dict)
-
-                        c_new += c__
-
-                    c_ *= c_new
-
-                    expr_ = 1
-                    expr_ /= D ** (b - a - 2)
-
-                    amp.inners.append((c_, expr_))
-
-    #latex_add2()
-    # Compress inners by term
-    inners_dict = {}
-    for (c_, expr_) in amp.inners:
-        if expr_ not in inners_dict:
-            inners_dict[expr_] = 0
-        inners_dict[expr_] += c_
-    amp.inners = [(v, k) for (k, v) in inners_dict.items()]
-    amp.latex_add2(latex)
+    amp.internal_momenta(k_to_k2, latex)
 
     ################################################
     ########  CUTOFF AND Z INTEGRATIONS   ##########
     ################################################
 
-    # Integrate cutoffs, then z integrals (backwards!)
-    for (z, a, b) in amp.integrals_cutoffs + amp.integrals_zs[::-1]:
-        subs_dict = {}
-
-        inners_ = []
-        for (c_, expr_) in amp.inners:
-            def add_symbol(expr___):
-                """ Adds a new symbol to `subs_dict` with the value
-                    `expr` and returns it. """
-                n = len(subs_dict)
-                symb = sy.Symbol("C_{{ {0} }}".format(n))
-                subs_dict[symb] = expr___
-                return symb
-
-            def simplify(expr__):
-                """ Take a list of args and replace things with subs_dict. """
-                if isinstance(expr__, sy.Add):
-                    const = 0
-                    args = []
-                    # Check if guy has z
-                    for arg in expr__.collect(z).args:
-                        if z not in arg.free_symbols:
-                            const += arg
-                        else:
-                            args.append(arg)
-                    C = add_symbol(const)
-                    res = 0
-                    for arg in args:
-                        res += simplify(arg)
-                    res += C
-                    return res
-                elif isinstance(expr__, sy.Mul):
-                    const = 1
-                    args = []
-                    # Check if guy has z
-                    for arg in expr__.collect(z).args:
-                        if z not in arg.free_symbols:
-                            const *= arg
-                        else:
-                            args.append(arg)
-                    res = 1
-                    for arg in args:
-                        res *= simplify(arg)
-
-                    if const != 1:
-                        C = add_symbol(const)
-                        res *= C
-                    return res
-                else:
-                    if expr__.args:
-                        return (expr__.__class__)(*[simplify(arg) for arg in expr__.args])
-                    return expr__
-
-            latex.add_text("Starting...")
-
-            # UV collect
-            latex.add(latex.get(expr_))
-            latex.add_text("UV collecting...")
-            if RENDER_ALL:
-                latex.render()
-
-            uv = sy.Symbol(Lamb)
-            if uv in expr_.free_symbols:
-                expr_ = sy.O(expr_, (uv, sy.oo)).args[0]
-
-            # Simplifying
-            latex.add(latex.get(expr_))
-            latex.add_text("Simplifying...")
-            if RENDER_ALL:
-                latex.render()
-
-            expr_ = simplify(expr_)
-
-            # Integrating
-            latex.add(latex.get(expr_))
-            latex.add_text("Integrating wrt ${0}$...".format(z))
-
-            if RENDER_ALL:
-                latex.render()
-
-            expr_ = sy.integrate(expr_, (z, a, b))
-
-            latex.add(latex.get(expr_))
-            inners_.append((c_, expr_))
-
-        amp.inners = inners_
-
-        # Perform substitutions
-        inners_ = []
-        for (c_, expr_) in amp.inners:
-            expr_ = expr_.subs(subs_dict)
-            inners_.append((c_, expr_))
-        amp.inners = inners_
-
-        latex.add_text("Substituting constants...")
-        amp.latex_add2(latex)
-
-        latex.add_text("Simplifying...")
-        expr_ = simplify(expr_)
-        amp.latex_add2(latex)
-
-        if RENDER_ALL:
-            latex.render()
+    #amp.cutoffs(latex, Lamb)
 
     ################################################
     ########  EVALUATE SPINS AND GAMMAS   ##########
@@ -488,47 +473,82 @@ def fermion_propagator():
 
     # TODO explicit spins (currently sum over all)
 
-    #n = len(amp.indices)
+    # Multiply metrics into terms
+    #metrics = 1
+    #for (ind1, ind2) in amp.metrics:
+    #    metrics *= MetricFactory(ind1, ind2)
+    #amp.metrics = []
 
-    #inners_ = []
-    #for (c_, expr_) in amp.inners:
-    #    c_ = c_ * expr_
-    #    expr_ = 1
+    ## terms is a queue now
+    #terms = Queue()
+    #for arg in amp.numer.args:
+    #    terms.put(arg * metrics)
 
-    #    c_new = 0
-    #    for indices_vals in product([0, 1, 2, 3], repeat=n):
-    #        # Construct substitution dictionary
-    #        ind2val = {}
-    #        for (k, v) in zip(amp.indices, indices_vals):
-    #            ind2val[k] = v
+    ## Iterate through terms queue till simplified
+    #result = 0
+    #while not terms.empty():
+    #    # Pick first term
+    #    term = terms.get(block=False)
+    #    (const, metrics, momentas, matrix_terms) = amp._split_into_matrices(term)
 
-    #        # Limit metrics
-    #        do_break = False
-    #        for (a, b) in amp.metrics:
-    #            if ind2val[a] != ind2val[b]:
-    #                do_break = True
+    #    # Continue until term is simplified
+    #    while len(matrix_terms) > 0:
+    #        # Simplify metrics
+    #        metrics = simplify_metrics(metrics)
+
+    #        # Simplify UBar(p) U(p)
+    #        if len(matrix_terms) >= 2:
+    #            [A, B] = matrix_terms[:2]
+    #            A_arg, B_arg = A.args[0], B.args[1]
+    #            if isinstance(A, UBar) and isinstance(B, U) and A_arg == B_arg:
+    #                const *= -p_to_m[A_arg]  # TODO check sign?
+    #                matrix_terms = matrix_terms[2:]
+
+    #                # Resolve term
+    #                result += const * metrics * momentas * matrix_terms
     #                break
-    #        if do_break:
-    #            continue
 
-    #        c__ = c_
-    #        for (ind, val) in ind2val.items():
-    #            c__ = c__.replace(lambda expr: ind in expr.args,
-    #                              lambda expr: expr.resolve(val))
+    #        # Find first gamma matrix
+    #        A, i = find_first(matrix_terms, \
+    #                          lambda expr: isinstance(expr, Gamma))
+    #        A_ind = A.args[0]
 
-    #        # TODO explicity convert c__ into a matrix expression and evaluate it
-    #        import pdb; pdb.set_trace()
-    #        latex.add(latex.get(c__))
-    #        c_new += c__
+    #        # Find the term after
+    #        B = matrix_terms[i+1]
 
-    #    inners_.append((c_new, expr_))
-    #amp.inners = inners_
+    #        if isinstance(B, Gamma):
+    #            B_ind = B.args[0]
+
+    #            j = Amplitude._find_metric_contraction(A, B, metrics)
+    #            if j is not None:
+    #                # Contract gammas with metric
+    #                const *= 4
+    #                metrics = metrics[:j] + metrics[j+1:]
+    #                matrix_terms = matrix_terms[:i] + matrix_terms[i+2:]
+    #            else:
+    #                # New term
+    #                new_matrix_terms = matrix_terms[:i] + matrix_terms[i+2:]
+    #                new_const = const * (-2)
+    #                new_metrics = metrics + [MetricFactory(A_ind, B_ind)]
+    #                terms.put(Amplitude._merge_matrices(new_const, new_metrics, momentas, new_matrix_terms))
+
+    #                # Swap gammas
+    #                const *= -1
+    #                matrix_terms[i:i+2] = [matrix_terms[i+1], matrix_terms[i]]
+    #        elif isinstance(B, U):
+    #            B_arg = B.args[0]
+
+    #            # Get A's momenta
+
+    #            if A_ind == B_ind:
+    #                # TODO get correct mass
+
 
     ################################################
     ########            RENDER            ##########
     ################################################
 
-    amp.latex_add2(latex)
+    #amp.latex_add2(latex)
     latex.render()
 
 if __name__ == "__main__":

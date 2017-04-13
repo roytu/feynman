@@ -16,140 +16,50 @@ class MatrixTerm(object):
     pass
 
 def GammaFactory(ind):
-    s = sy.MatrixSymbol.__new__(Gamma, "gamma_{0}".format(ind), 4, 4)
+    s = sy.Symbol.__new__(Gamma, "\\gamma_{0}".format(ind), commutative=False)
     s._args += (ind,)
     return s
 
-def MomentumFactory(name_, ind=None):
+def MomentumFactory(name, ind):
     if ind:
-        s = sy.Symbol.__new__(Momentum, "{0}_{1}".format(name_, ind))
+        s = sy.Symbol.__new__(Momentum, "{0}_{1}".format(name, ind))
     else:
-        s = sy.Symbol.__new__(Momentum, "{0}".format(name_))
-    s._args += (name_, ind)
+        s = sy.Symbol.__new__(Momentum, "{0}".format(name))
+    s._args += (name, ind)
     return s
 
-def UFactory(name, spin):
-    s = sy.MatrixSymbol.__new__(U, "u({0})".format(name), 4, 1)
-    s._args += (name, spin)
+def UFactory(name):
+    s = sy.Symbol.__new__(U, "u({0})".format(name), commutative=False)
+    #s._args += (name, spin)
+    s._args += (name,)
     return s
 
-def UBarFactory(name, spin):
-    s = sy.MatrixSymbol.__new__(UBar, "\\bar{{u}}({0})".format(name), 1, 4)
-    s._args += (name, spin)
+def UBarFactory(name):
+    s = sy.Symbol.__new__(UBar, "\\bar{{u}}({0})".format(name), commutative=False)
+    #s._args += (name, spin)
+    s._args += (name,)
+    return s
+
+def MetricFactory(ind1, ind2):
+    s = sy.Symbol.__new__(Metric, "g_{0}_{1}".format(ind1, ind2))
+    s._args += (ind1, ind2)
     return s
 
 # These are actually factories I guess
-class Gamma(sy.MatrixSymbol):
-    #def __init__(self, *args):
-    #    sy.MatrixSymbol.__init__(self, *args)
-    #    self._args = None
-
-    def __new__(self, name, n, m, **args):
-        print(args)
-        s = sy.MatrixSymbol.__new__(self, name, 4, 4)
-        s._args += tuple(args)
-        return s
-
-    def add_index(self, ind):
-        self.indices.add(ind)
-
-    def resolve(self, ind):
-        if ind == 0:
-            return Gamma0()
-        elif ind == 1:
-            return Gamma1()
-        elif ind == 2:
-            return Gamma2()
-        elif ind == 3:
-            return Gamma3()
-        else:
-            raise Exception("WEIRD")
-
-    #def doit(self):
-    #    ret = None
-    #    if self.args[0] == 0:
-    #        ret = Gamma0.explicit()
-    #    elif self.args[0] == 1:
-    #        ret = Gamma1.explicit()
-    #    elif self.args[0] == 2:
-    #        ret = Gamma2.explicit()
-    #    elif self.args[0] == 3:
-    #        ret = Gamma3.explicit()
-    #    else:
-    #        raise Exception("Uncontracted index! {0}".format(self.args[0]))
-    #    print("Returning {0}".format(ret))
-    #    return ret
+class Gamma(sy.Symbol, MatrixTerm):
+    pass
 
 class Momentum(sy.Symbol):
-    def resolve(self, new):
-        """ This overrides the default behavior of subs. """
-        # TODO make better?
-        return sy.Symbol("{{ {{ {0} }}_{{ {1} }} }}".format(self.args[0], new))
+    pass
 
-class U(sy.MatrixSymbol):
-    def set_spin(self, spin):
-        self.spin = spin  # Spin is either 0: up or 1: down
+class U(sy.Symbol, MatrixTerm):
+    pass
 
-    def explicit(self):
-        p = Momentum(self.args[0])
-        E = p.resolve(0)
-        p1 = p.resolve(1)
-        p2 = p.resolve(2)
-        p3 = p.resolve(3)
-
-        m = sy.sqrt(E ** 2 - p1 ** 2 - p2 ** 2 - p3 ** 2)
-
-        N = sy.sqrt((E + m) / (2 * m))
-        if self.args[1] == 0:
-            return sy.Matrix([[1],
-                              [0],
-                              [p3 / ( E + m )],
-                              [(p1 + sy.I * p2) / (E + m)]])
-
-            return sy.Matrix([[1],
-                              [0],
-                              [p3 / ( E + m )],
-                              [(p1 + sy.I * p2) / (E + m)]])
-        elif self.args[1] == 1:
-            return sy.Matrix([[0],
-                              [1],
-                              [(p1 - sy.I * p2) / (E + m)],
-                              [-p3 / ( E + m )]])
-        else:
-            raise Exception("Error!")
-
-class UBar(sy.MatrixSymbol):
-    def set_spin(self, spin):
-        self.spin = spin  # Spin is either 0: up or 1: down
-
-    def explicit(self):
-        p = Momentum(self.args[0])
-        E = p.resolve(0)
-        p1 = p.resolve(1)
-        p2 = p.resolve(2)
-        p3 = p.resolve(3)
-
-        m = sy.sqrt(E ** 2 - p1 ** 2 - p2 ** 2 - p3 ** 2)
-
-        N = sy.sqrt((E + m) / (2 * m))
-        if self.args[1] == 0:
-            return sy.Matrix([[1,
-                               0,
-                               p3 / (E + m),
-                               (p1 - sy.I * p2) / (E + m)]])
-        elif self.args[1] == 1:
-            return sy.Matrix([[0,
-                               1,
-                               (p1 + sy.I * p2) / (E + m),
-                               -p3 / (E + m)]])
-        else:
-            raise Exception("Error!")
+class UBar(sy.Symbol, MatrixTerm):
+    pass
 
 class Metric(sy.Symbol):
-    def __new__(cls, ind1, ind2):
-        s = sy.Symbol.__new__(cls, "g_{0}_{1}".format(ind1, ind2))
-        s._args += (ind1, ind2)
-        return s
+    pass
 
 # doit dummy classes
 class Gamma0(sy.MatrixSymbol):
