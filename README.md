@@ -1,5 +1,6 @@
 # feynman
-program to do my math for me
+
+Program that takes the integrals from QFT scattering amplitudes and simplifies them with some funny tricks.  Currently supports only QED.  WIP
 
 Steps:
 1. Write out the amplitude, using regularized vertices and propagators.
