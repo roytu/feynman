@@ -20,13 +20,17 @@ def GammaFactory(ind):
     s._args += (ind,)
     return s
 
-def MomentumFactory(name, ind):
-    if ind:
-        s = sy.Symbol.__new__(Momentum, "{0}_{1}".format(name, ind))
-    else:
-        s = sy.Symbol.__new__(Momentum, "{0}".format(name))
-    s._args += (name, ind)
-    return s
+#def MomentumFactory(name, ind, contravariant=True):
+#    #if contravariant:
+#    #    #s = sy.Symbol.__new__(Momentum, "{{ {{ {0} }}^{{ {1} }} }}".format(name, ind), commutative=False)
+#    #    s = sy.Function(Momentum, "M")
+#    #else:
+#    #    #s = sy.Symbol.__new__(Momentum, "{{ {{ {0} }}_{{ {1} }} }}".format(name, ind), commutative=False)
+#    #    s = sy.Function(Momentum, "M")
+#    ##s = Momentum("{0}".format(name))
+#    ##s._args += (name, ind, contravariant)
+#    return Momentum(name, ind, contravariant)
+#    #return s
 
 def UFactory(name):
     s = sy.Symbol.__new__(U, "u({0})".format(name), commutative=False)
@@ -47,70 +51,39 @@ def MetricFactory(ind1, ind2):
 
 # These are actually factories I guess
 class Gamma(sy.Symbol, MatrixTerm):
-    pass
+    @property
+    def is_rational_function(self):
+        return True  # ??
 
-class Momentum(sy.Symbol):
-    pass
+#class Momentum(sy.Symbol):
+#    pass
+
+#class Momentum(sy.Symbol, sy.Function):
+class Momentum(sy.Function):
+    # Inspired by
+    # http://docs.sympy.org/0.7.2/_modules/sympy/core/power.html#Pow
+
+    nargs = (3,)
+
+    @property
+    def is_commutative(self):
+        return True
+
+    @property
+    def is_rational_function(self):
+        return True  # ??
 
 class U(sy.Symbol, MatrixTerm):
-    pass
+    @property
+    def is_rational_function(self):
+        return True  # ??
 
 class UBar(sy.Symbol, MatrixTerm):
-    pass
+    @property
+    def is_rational_function(self):
+        return True  # ??
 
 class Metric(sy.Symbol):
-    pass
-
-# doit dummy classes
-class Gamma0(sy.MatrixSymbol):
-    def __new__(cls):
-        s = sy.MatrixSymbol.__new__(cls, "{{ \\gamma^0 }}", 4, 4)
-        #s._assumptions["commutative"] = False
-        return s
-
-    @classmethod
-    def explicit(self):
-        return sy.Matrix([[1, 0,  0,  0],
-                          [0, 1,  0,  0],
-                          [0, 0, -1,  0],
-                          [0, 0,  0, -1]])
-
-class Gamma1(sy.MatrixSymbol):
-    def __new__(cls):
-        s = sy.MatrixSymbol.__new__(cls, "{{ \\gamma^1 }}", 4, 4)
-        #s._assumptions["commutative"] = False
-        return s
-
-    @classmethod
-    def explicit(self):
-        return sy.Matrix([[0,  0, 0, 1],
-                          [0,  0, 1, 0],
-                          [0, -1, 0, 0],
-                          [-1, 0, 0, 0]])
-
-class Gamma2(sy.MatrixSymbol):
-    def __new__(cls):
-        s = sy.MatrixSymbol.__new__(cls, "{{ \\gamma^2 }}", 4, 4)
-        #s._assumptions["commutative"] = False
-        return s
-
-    @classmethod
-    def explicit(self):
-        i = sy.I
-        return sy.Matrix([[0,  0,  0, -i],
-                          [0,  0,  i,  0],
-                          [0,  i,  0,  0],
-                          [-i, 0,  0,  0]])
-
-class Gamma3(sy.MatrixSymbol):
-    def __new__(cls):
-        s = sy.MatrixSymbol.__new__(cls, "{{ \\gamma^3 }}", 4, 4)
-        #s._assumptions["commutative"] = False
-        return s
-
-    @classmethod
-    def explicit(self):
-        return sy.Matrix([[0,  0,  1,  0],
-                          [0,  0,  0, -1],
-                          [1,  0,  0,  0],
-                          [0, -1,  0,  0]])
+    @property
+    def is_rational_function(self):
+        return True  # ??

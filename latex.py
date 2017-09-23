@@ -34,6 +34,12 @@ class Latex(object):
     def render(self, fname="report.tex"):
         # Construct equation string
         s = "".join(self.eqs)
+
+        # Replace special words
+        s = s.replace("SLASH", "\\")
+        #s = s.replace("DUMMY", ":)")
+        s = s.replace("DUMMY", "\\eta")
+
         with open("reports/include.tex", "w") as f:
             f.write(s)
 
@@ -44,8 +50,12 @@ class CustomLatexPrinter(LatexPrinter):
     def _print_Gamma(self, expr):
         return "{{ \\gamma^{{ {0} }} }}".format(expr.args[0])
 
-    def _print_Momentum(self, expr):
-        return "{{ {{ {0} }}_{{ {1} }} }}".format(expr.args[0], expr.args[1])
+    def _print_Momentum(self, *args):
+        expr = args[0]
+        if expr.args[2]:
+            return "{{ {{ {0} }}^{{ {1} }} }}".format(expr.args[0], expr.args[1])
+        else:
+            return "{{ {{ {0} }}_{{ {1} }} }}".format(expr.args[0], expr.args[1])
 
     def _print_U(self, expr):
         return "u({{ {0} }})".format(expr.args[0])
