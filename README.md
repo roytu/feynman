@@ -1,6 +1,9 @@
 # feynman
 
+![Electron self-energy correction](http://jefferywinkler.com/beystandmod106.gif)
+
 This software uses the electron self-energy correction as a demo, and the output of the calculation can be seen in [reports/report.pdf](reports/report.pdf).
+
 
 # Overview
 
@@ -12,3 +15,4 @@ Steps:
 3. Perform integrals over four-momenta.
 4. Take highest order (in the cutoff momenta).
 5. Evaluate spin matrices.
+
