@@ -5,8 +5,7 @@ import re
 
 from math import factorial
 import sympy as sy
-import numpy as np
-from scipy.special import gamma
+from sympy import gamma
 from latex import Latex
 from term import GammaFactory, UFactory, UBarFactory, EFactory, EBarFactory, \
         Momentum, MetricFactory, Momentum, Metric, MatrixTerm
@@ -570,8 +569,8 @@ def calculate(config_str, internal_momenta):
 
                     # Golden integral
                     #c, a = term.as_coeff_exponent(sy.Symbol(k2))
-                    c_ = sy.I * gamma(np.float64(b - a - (4 - EPS)/2)) * gamma(np.float64(a + (4 + EPS) / 2))
-                    c_ /= gamma(np.float64(b))
+                    c_ = sy.I * gamma(b - a - (4 - EPS)/2) * gamma(a + (4 + EPS) / 2)
+                    c_ /= gamma(b)
                     c_ /= (4 * sy.pi) ** 2
                     # Part of the Golden integral d^q factor
                     c_ *= (2 * sy.pi) ** 4
@@ -713,7 +712,8 @@ def calculate(config_str, internal_momenta):
     ################################################
 
     latex.add_text("\\section*{Evaluating spins and gamma matrices}")
-    latex.add_text("TODO jk do it yourself you slags, here's the sum, have fun.  Don't forget to take traces/multiply by -1 for internal fermion loops.")
+    #latex.add_text("TODO jk do it yourself you slags, here's the sum, have fun.  Don't forget to take traces/multiply by -1 for internal fermion loops.")
+    latex.add_text("TODO.  Here's the sum for now:")
 
     latex.add("\\; + \\;".join([amp_.get_latex(latex) for amp_ in amps]))
 
