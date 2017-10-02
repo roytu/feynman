@@ -32,6 +32,18 @@ def GammaFactory(ind):
 #    return Momentum(name, ind, contravariant)
 #    #return s
 
+def EFactory(name, ind):
+    s = sy.Symbol.__new__(E, "\\epsilon_{1}({0})".format(name, ind), commutative=True)
+    #s._args += (name, spin)
+    s._args += (name, ind)
+    return s
+
+def EBarFactory(name, ind):
+    s = sy.Symbol.__new__(EBar, "\\bar{{\\epsilon}}_{1}({0})".format(name, ind), commutative=True)
+    #s._args += (name, spin)
+    s._args += (name, ind)
+    return s
+
 def UFactory(name):
     s = sy.Symbol.__new__(U, "u({0})".format(name), commutative=False)
     #s._args += (name, spin)
@@ -79,6 +91,16 @@ class U(sy.Symbol, MatrixTerm):
         return True  # ??
 
 class UBar(sy.Symbol, MatrixTerm):
+    @property
+    def is_rational_function(self):
+        return True  # ??
+
+class E(sy.Symbol):
+    @property
+    def is_rational_function(self):
+        return True  # ??
+
+class EBar(sy.Symbol):
     @property
     def is_rational_function(self):
         return True  # ??

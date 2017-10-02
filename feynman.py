@@ -1,11 +1,15 @@
 
 """ Given a Feynman diagram, perform integrals. """
 
+import re
+
 from math import factorial
 import sympy as sy
+import numpy as np
+from scipy.special import gamma
 from latex import Latex
-from term import GammaFactory, UFactory, UBarFactory, Momentum, \
-        MetricFactory, Momentum, Metric, MatrixTerm
+from term import GammaFactory, UFactory, UBarFactory, EFactory, EBarFactory, \
+        Momentum, MetricFactory, Momentum, Metric, MatrixTerm
 
 from itertools import product
 
@@ -13,6 +17,8 @@ from util import find_first
 
 #RENDER_ALL = True
 RENDER_ALL = False
+
+EPS = 1e-10
 
 def get_highest_log_term(expr, uv):
     """ Return the highest order term of uv of expr
@@ -135,17 +141,29 @@ class Amplitude(object):
 
         return amp
 
-    def U(self, p):
-        u = UFactory(p.args[0])
+    def U(self, p_name):
+        u = UFactory(p_name)
         self.spinors.append(u)
         self.numer *= u
         return u
 
-    def UBar(self, p):
-        u = UBarFactory(p.args[0])
+    def UBar(self, p_name):
+        u = UBarFactory(p_name)
         self.spinors.append(u)
         self.numer *= u
         return u
+
+    def E(self, p_name, ind):
+        e_ = EFactory(p_name, ind)
+        self.spinors.append(e_)
+        self.numer *= e_
+        return e_
+
+    def EBar(self, p_name, ind):
+        e_ = EBarFactory(p_name, ind)
+        self.spinors.append(e_)
+        self.numer *= e_
+        return e_
 
     def V(self, e, ind):
         """ e: string
@@ -193,7 +211,7 @@ class Amplitude(object):
         self.indices.add(ind1)
         self.indices.add(ind2)
 
-    def latex_add(self, latex):
+    def get_latex(self, latex):
         """ Numer / denom format """
         s = ""
         s += latex.get(self.const)
@@ -215,8 +233,13 @@ class Amplitude(object):
             else:
                 s += "\\int\\frac{{d^d {0} }}{{ (2\pi)^4 }}".format(k)
 
+        s += "\\left("
         s += latex.get(self.numer / self.denom)
-        latex.add(s)
+        s += "\\right)"
+        return s
+
+    def latex_add(self, latex):
+        latex.add(self.get_latex(latex))
 
     def latex_add2(self, latex):
         """ Inner format with no integrals """
@@ -279,53 +302,16 @@ class Amplitude(object):
         return expr.replace(any_k_up, any_expr_up) \
                    .replace(any_k_down, any_expr_down)
 
-def fermion_propagator():
-    """ Calculate expression for first-order corrected fermion propagator. """
+def calculate(config_str, internal_momenta):
+    """ Calculate expression for configuration. """
 
     latex = Latex()
 
     ################################################
     ########     CONSTRUCT AMPLITUDE      ##########
     ################################################
-    e = "e"
 
-    p = "p"
-    k = "k"
-    m = "m"
-    tensors = ["SLASHsigma_2"]
-    Lamb = "SLASHLambda"
-    lamb = "SLASHlambda"
-    t = "t"
-    mu = "SLASHmu"
-    nu = "SLASHnu"
-
-    amp = Amplitude()
-
-    # Integral over k
-    amp.integrals_internal.append((k, None, None))
-
-    # Constants
-    amp.const /= (2 * sy.pi) ** 4
-
-    # Construct symbols
-    ind = tensors[0]  # \\sigma_2
-    p_down = Momentum(p, ind, 0)
-    p_up = Momentum(p, ind, 1)
-    k_down = Momentum(k, ind, 0)
-    k_up = Momentum(k, ind, 1)
-
-    p_down_dummy = Momentum(p, "DUMMY", 0)
-    p_up_dummy = Momentum(p, "DUMMY", 1)
-    k_down_dummy = Momentum(k, "DUMMY", 0)
-    k_up_dummy = Momentum(k, "DUMMY", 1)
-    k2_dummy = k_down_dummy * k_up_dummy
-
-    amp.UBar(p_up)
-    amp.V(sy.Symbol(e), mu)
-    amp.S_F(p_up - k_up, p_down - k_down, p_up_dummy - k_up_dummy, p_down_dummy - k_down_dummy, sy.Symbol(m), ind)
-    amp.V(sy.Symbol(e), nu)
-    amp.U(p_up)
-    amp.D_F(k_up_dummy, k_down_dummy, mu, nu, sy.Symbol(t), sy.Symbol(lamb), sy.Symbol(Lamb))
+    config, amp = make_amplitude(config_str, internal_momenta)
 
     # Render
     latex.add_text("\\section*{Raw amplitude}")
@@ -359,7 +345,7 @@ def fermion_propagator():
             denom_.append(arg)
 
     n = len(denom_)
-    amp.const *= factorial(n - 1)
+    amp.const *= gamma(n)
 
     zs = [sy.Symbol("{{ z_{{ {0} }} }}".format(i+1)) for i in range(n)]
     amp.denom = sum([d * z for (d, z) in zip(denom_, zs)]).expand() ** n
@@ -488,7 +474,7 @@ def fermion_propagator():
             """
 
             # Prepare to replace numerator
-            k_name = k_up.args[0]
+            k_name = k
             q_name = "q_{0}".format(len(amp_.qs) + 1)  # TODO sloppy af
             amp_.qs.append(q_name)
 
@@ -577,15 +563,15 @@ def fermion_propagator():
 
                     # Golden integral
                     #c, a = term.as_coeff_exponent(sy.Symbol(k2))
-                    c_ = sy.I * factorial(b - a - 3) * factorial(a + 1)
-                    c_ /= factorial(b - 1)
+                    c_ = sy.I * gamma(np.float64(b - a - (4 - EPS)/2)) * gamma(np.float64(a + (4 + EPS) / 2))
+                    c_ /= gamma(np.float64(b))
                     c_ /= (4 * sy.pi) ** 2
                     # Part of the Golden integral d^q factor
                     c_ *= (2 * sy.pi) ** 4
                     amp__.const *= c_
 
                     amp__.denom = D ** (b - a - 2)  # TODO generalize to d-dimensions
-                                                        # with 2 -> D / 2
+                                                    # with 2 -> D / 2
 
                     # Add to amps if nonzero
                     amps.append(amp__)
@@ -624,7 +610,7 @@ def fermion_propagator():
     ##########################################
     latex.add_text("\\section*{Integrating cutoffs}")
     latex.add_text("Here we integrate all $t$-variables, which represent the upper and lower cutoffs.")
-    uv = sy.Symbol(Lamb)
+    uv = sy.Symbol(config["Lamb"])
 
     integrated_amps = []
 
@@ -719,7 +705,13 @@ def fermion_propagator():
     ########  EVALUATE SPINS AND GAMMAS   ##########
     ################################################
 
-    pass
+    latex.add_text("\\section*{Evaluating spins and gamma matrices}")
+    latex.add_text("TODO jk do it yourself you slags, here's the sum, have fun.  Don't forget to take traces/multiply by -1 for internal fermion loops.")
+
+    latex.add("\\; + \\;".join([amp_.get_latex(latex) for amp_ in amps]))
+
+    if RENDER_ALL:
+        latex.render()
 
     ################################################
     ########            RENDER            ##########
@@ -728,5 +720,142 @@ def fermion_propagator():
     #amp.latex_add2(latex)
     latex.render()
 
+def make_amplitude(config_str, internal_momenta):
+    """ Make amplitude from config string and internal momenta list. """
+    # Replace slashes
+    config_str = config_str.replace("\\", "SLASH")
+
+    # Parse terms
+    raw_terms = config_str.split()
+    terms = []
+    for raw_term in raw_terms:
+        i = raw_term.find("(")
+        j = raw_term.find(")")
+        func = raw_term[:i]
+        args = raw_term[i+1:j].split(",")
+        terms.append((func, args))
+
+    # Start building config
+    config = {}
+    config["e"] = "e"
+    config["m"] = "m"
+    config["Lamb"] = "SLASHLambda"
+    config["lamb"] = "SLASHlambda"
+    config["t"] = "t"
+
+    # Internal momenta
+    config["internal_momenta"] = internal_momenta
+    config["momenta"] = {}
+
+    ##############################
+    ###    Parse amplitude     ###
+    ##############################
+    amp = Amplitude()
+    amp.const /= (2 * sy.pi) ** 4
+
+    # Add internal integrals for all internal momenta
+    for k in config["internal_momenta"]:
+        amp.integrals_internal.append((k, None, None))
+
+    # Go through terms
+    for (func, args) in terms:
+        if func == "UBar":
+            p_name = args[0]
+            amp.UBar(p_name)
+        elif func == "U":
+            p_name = args[0]
+            amp.U(p_name)
+        elif func == "EBar":
+            p_name = args[0]
+            ind = args[1]
+            amp.EBar(p_name, ind)
+        elif func == "E":
+            p_name = args[0]
+            ind = args[1]
+            amp.E(p_name, ind)
+        elif func == "V":
+            mu_name = args[0]
+            amp.V(sy.Symbol(config["e"]), mu_name)
+        elif func == "S":
+            [ps, ind] = args
+
+            # Tokenize
+            p_names = re.split("\+|-", ps)
+            ops = [c for c in ps if c in "+-"]
+
+            # Make new momentums if they don't exist
+            for p_name in p_names:
+                if p_name not in config["momenta"]:
+                    p_ = config["momenta"][p_name] = {}
+                    p_["up"] = Momentum(p_name, ind, 1)
+                    p_["down"] = Momentum(p_name, ind, 0)
+                    p_["up_dummy"] = Momentum(p_name, "DUMMY", 1)
+                    p_["down_dummy"] = Momentum(p_name, "DUMMY", 0)
+
+            p_ = config["momenta"][p_names[0]]
+            up_sum = p_["up"]
+            down_sum = p_["down"]
+            up_dummy_sum = p_["up_dummy"]
+            down_dummy_sum = p_["down_dummy"]
+
+            for p_name, op in zip(p_names[1:], ops):
+                p_ = config["momenta"][p_name]
+                if op == "+":
+                    up_sum += p_["up"]
+                    down_sum += p_["down"]
+                    up_dummy_sum += p_["up_dummy"]
+                    down_dummy_sum += p_["down_dummy"]
+                elif op == "-":
+                    up_sum -= p_["up"]
+                    down_sum -= p_["down"]
+                    up_dummy_sum -= p_["up_dummy"]
+                    down_dummy_sum -= p_["down_dummy"]
+
+            amp.S_F(up_sum, down_sum, up_dummy_sum, down_dummy_sum,
+                    sy.Symbol(config["m"]), ind)
+        elif func == "D":
+            [ps, mu, nu] = args
+
+            # Tokenize
+            p_names = re.split("\+|-", ps)
+            ops = [c for c in ps if c in "+-"]
+
+            # Make new momentums if they don't exist
+            for p_name in p_names:
+                if p_name not in config["momenta"]:
+                    p_ = config["momenta"][p_name] = {}
+                    p_["up"] = Momentum(p_name, ind, 1)
+                    p_["down"] = Momentum(p_name, ind, 0)
+                    p_["up_dummy"] = Momentum(p_name, "DUMMY", 1)
+                    p_["down_dummy"] = Momentum(p_name, "DUMMY", 0)
+
+            p_ = config["momenta"][p_names[0]]
+            up_dummy_sum = p_["up_dummy"]
+            down_dummy_sum = p_["down_dummy"]
+
+            for p_name, op in zip(p_names[1:], ops):
+                p_ = config["momenta"][p_name]
+                if op == "+":
+                    up_dummy_sum += p_["up_dummy"]
+                    down_dummy_sum += p_["down_dummy"]
+                elif op == "-":
+                    up_dummy_sum -= p_["up_dummy"]
+                    down_dummy_sum -= p_["down_dummy"]
+
+            amp.D_F(up_dummy_sum, down_dummy_sum, mu, nu,
+                    sy.Symbol(config["t"]),
+                    sy.Symbol(config["lamb"]),
+                    sy.Symbol(config["Lamb"]))
+
+    return (config, amp)
+
 if __name__ == "__main__":
-    fermion_propagator()
+    # Electron self-energy correction
+    #config_str = """UBar(p) V(\\mu) S(p-k,\\sigma_2) V(\\nu) U(p) D(k,\\mu,\\nu)"""
+    #internal_momenta = ["k"]
+    #calculate(config_str, internal_momenta)
+
+    # Photon self-energy correction
+    config_str = """EBar(k,\\mu) V(\\mu) S(k+p,\\sigma_1) S(p,\\sigma_2) V(\\nu) E(k,\\nu)"""
+    internal_momenta = ["p"]
+    calculate(config_str, internal_momenta)

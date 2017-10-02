@@ -63,5 +63,11 @@ class CustomLatexPrinter(LatexPrinter):
     def _print_UBar(self, expr):
         return "{{ \\bar{{u}}({0}) }}".format(expr.args[0])
 
+    def _print_E(self, expr):
+        return "\\epsilon_{{ {1} }}({{ {0} }})".format(expr.args[0], expr.args[1])
+
+    def _print_EBar(self, expr):
+        return "\\bar{{\\epsilon}}_{{ {1} }}({{ {0} }})".format(expr.args[0], expr.args[1])
+
     def _print_Metric(self, expr):
         return "g_{{ {0} {1} }}".format(expr.args[0], expr.args[1])
