@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+   <title>QED Calculator</title>
+   <script type="text/x-mathjax-config">
+        MathJax.Hub.Config({tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]}});
+   </script>
+   <script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/0.1/MathJax.js?config=TeX-MML-AM_CHTML'></script>
+</head>
+<body>
+    <h1>QED Calculator</h1>
+    <p>Tries to calculate Feynman diagrams</p>
+    <form action = "/" method="post">
+        Diagram: <input type="text" name="config_str" value="EBar(k,\\mu) V(\\mu) S(k+p,\\sigma_1) S(p,\\sigma_2) V(\\nu) E(k,\\nu)" size=100><br>
+        Internal Momenta (separated by spaces): <input type="text" name="internal_momenta" value="p"><br>
+        <input type="submit" name="Generate Report"><br>
+        <p name="error">{{ error }}</p>
+        <p name="result">${{ result }}$</p>
+    </form>
+    {% if report_visible %}
+        <a href="/reports/report.pdf">view report</a>
+    {% endif %}
+</body>
+</html>

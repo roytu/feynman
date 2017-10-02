@@ -302,6 +302,9 @@ class Amplitude(object):
         return expr.replace(any_k_up, any_expr_up) \
                    .replace(any_k_down, any_expr_down)
 
+class ParseException(Exception):
+    pass
+
 def calculate(config_str, internal_momenta):
     """ Calculate expression for configuration. """
 
@@ -311,7 +314,11 @@ def calculate(config_str, internal_momenta):
     ########     CONSTRUCT AMPLITUDE      ##########
     ################################################
 
-    config, amp = make_amplitude(config_str, internal_momenta)
+    try:
+        internal_momenta = internal_momenta.split()
+        config, amp = make_amplitude(config_str, internal_momenta)
+    except:
+        raise ParseException("Error while parsing.")
 
     # Render
     latex.add_text("\\section*{Raw amplitude}")
@@ -720,6 +727,8 @@ def calculate(config_str, internal_momenta):
     #amp.latex_add2(latex)
     latex.render()
 
+    return "\\; + \\;".join([amp_.get_latex(latex) for amp_ in amps])
+
 def make_amplitude(config_str, internal_momenta):
     """ Make amplitude from config string and internal momenta list. """
     # Replace slashes
@@ -857,5 +866,5 @@ if __name__ == "__main__":
 
     # Photon self-energy correction
     config_str = """EBar(k,\\mu) V(\\mu) S(k+p,\\sigma_1) S(p,\\sigma_2) V(\\nu) E(k,\\nu)"""
-    internal_momenta = ["p"]
+    internal_momenta = "p"
     calculate(config_str, internal_momenta)
